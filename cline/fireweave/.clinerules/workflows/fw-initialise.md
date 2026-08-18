@@ -967,12 +967,12 @@ Customer repos: leave `sourceRoots` empty (scan whole repo) unless the app layou
 
 **What — surface → packages:**
 
-| Surface     | Packages                                                                                                  | Why both                                                                                                                                                                                           |
-| ----------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ts-server` | `@fireweaveai/deploy-sdk @fireweaveai/sdk`                                                                | deploy-sdk carries OTel + the flag-anchor scanner + credential resolution; the standalone SDK carries control points — the remote adapter and the local dev provider the scaffolded providers bind |
-| `web`       | `@fireweaveai/deploy-sdk @fireweaveai/web-sdk`                                                            | web-sdk carries browser control points; deploy-sdk carries credential resolution + telemetry + hooks                                                                                               |
-| `python`    | `fireweave[openfeature]`                                                                                  | the whole surface — flags, runtime, target registration. No deploy-sdk: it is a TypeScript package.                                                                                                |
-| `java`      | `ai.fireweave:fireweave-sdk` + `ai.fireweave:fireweave-openfeature` (Maven GAV, version `0.1.0-SNAPSHOT`) | the whole surface — flags, runtime, target registration; `fireweave-openfeature` carries the providers and pulls `dev.openfeature:sdk` transitively. No deploy-sdk.                                |
+| Surface     | Packages                                                                                                                                      | Why both                                                                                                                                                                                           |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ts-server` | `@fireweaveai/deploy-sdk @fireweaveai/sdk`                                                                                                    | deploy-sdk carries OTel + the flag-anchor scanner + credential resolution; the standalone SDK carries control points — the remote adapter and the local dev provider the scaffolded providers bind |
+| `web`       | `@fireweaveai/deploy-sdk @fireweaveai/web-sdk`                                                                                                | web-sdk carries browser control points; deploy-sdk carries credential resolution + telemetry + hooks                                                                                               |
+| `python`    | `fireweave[openfeature]`                                                                                                                      | the whole surface — flags, runtime, target registration. No deploy-sdk: it is a TypeScript package.                                                                                                |
+| `java`      | `ai.fireweave:fireweave-sdk` + `ai.fireweave:fireweave-openfeature` (Maven Central; resolve the current release — see the java install table) | the whole surface — flags, runtime, target registration; `fireweave-openfeature` carries the providers and pulls `dev.openfeature:sdk` transitively. No deploy-sdk.                                |
 
 **The `[openfeature]` extra is load-bearing.** It is what pulls `openfeature-sdk`; `fireweave` core is dependency-free by design, so without the bracket the scaffolded modules import a package that is not installed. **Quote it** — `zsh` globs an unquoted `[...]` and the install dies with `no matches found`. Write `'fireweave[openfeature]'`, single-quoted, everywhere.
 
@@ -998,20 +998,24 @@ A **python** surface uses its own managers — same detection discipline, differ
 A **java** surface has no "install" verb at all — every path is a build-file
 edit, which the repo records by construction:
 
-| Detected                              | Add                                                                                                                                                                         |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pom.xml`                             | two `<dependency>` blocks — `ai.fireweave:fireweave-sdk:0.1.0-SNAPSHOT` and `ai.fireweave:fireweave-openfeature:0.1.0-SNAPSHOT`                                             |
-| `build.gradle` / `build.gradle.kts`   | `implementation("ai.fireweave:fireweave-sdk:0.1.0-SNAPSHOT")` + `implementation("ai.fireweave:fireweave-openfeature:0.1.0-SNAPSHOT")`; add `mavenLocal()` to `repositories` |
-| `gradle/libs.versions.toml` (catalog) | a `fireweave` version entry + the two library coordinates, referenced from the build file                                                                                   |
+| Detected                              | Add                                                                                                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pom.xml`                             | two `<dependency>` blocks — `ai.fireweave:fireweave-sdk:<release>` and `ai.fireweave:fireweave-openfeature:<release>`                                    |
+| `build.gradle` / `build.gradle.kts`   | `implementation("ai.fireweave:fireweave-sdk:<release>")` + `implementation("ai.fireweave:fireweave-openfeature:<release>")` — `mavenCentral()` is enough |
+| `gradle/libs.versions.toml` (catalog) | a `fireweave` version entry + the two library coordinates, referenced from the build file                                                                |
 
-**The `ai.fireweave` artifacts are NOT on Maven Central yet** (publication is
-pending namespace verification — those are the intended public coordinates).
-Until Central confirms, the install prerequisite is a repo-checkout install into
-the local Maven repository, exactly as the SDK README instructs:
-`git clone https://github.com/FireWeave-HQ/fireweave-sdk && cd fireweave-sdk/sdks/java && mvn install`
-— say this plainly to the user and record it in the session summary; do not
-present the dependency blocks as resolvable from Central. Gradle consumers also
-need `mavenLocal()` for the same reason. Do NOT scaffold
+**The `ai.fireweave` artifacts resolve from Maven Central** (published
+2026-08-18; `dev.openfeature:sdk` arrives transitively from
+`fireweave-openfeature`, so it needs no explicit dependency). **`<release>` is
+resolved at init time, never copied from this document:** Maven has no
+dist-tags, so read the current release from Central's metadata —
+`https://repo1.maven.org/maven2/ai/fireweave/fireweave-sdk/maven-metadata.xml`,
+the `<release>` element (`0.1.0` was current when this sentence was written) —
+and pin that literal in the build file, the SAME version for both artifacts
+(they publish in lockstep from one reactor). A version baked into this doc
+would freeze every scaffolded repo at whatever was current the day it was
+written — the same trap the deploy-sdk paragraph below records for npm.
+Do NOT scaffold
 `ai.fireweave:fireweave-adapter-posthog` (test seam; `create()` throws) —
 `fireweave-testing` is optional, `<scope>test</scope>` only.
 

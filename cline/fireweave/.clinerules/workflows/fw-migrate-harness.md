@@ -1,6 +1,6 @@
 # migrate-harness
 
-> Move an app's feature-flag reads onto the FireWeave control-points v1 SDK — the code half of migrating to FireWeave-managed flags. Handles two source shapes — a direct PostHog SDK, and an OpenFeature-era FireWeave harness. Rewrites provider wiring to `initFireweave` from `@fireweaveai/server-sdk` / `@fireweaveai/web-sdk`, maps identity calls to target registration, and reports the result to fw-server so the project page can pair it with the flag half. Use when the user asks to "migrate to FireWeave flags", "move off PostHog", "switch to the FireWeave SDK", "upgrade to control points", or invokes `/fireweave:migrate-harness`. `--check` reports what would change without writing.
+> Move an app's feature-flag reads onto the FireWeave control-points v1 SDK — the code half of migrating to FireWeave-managed flags. Handles three source shapes — a direct PostHog SDK, an OpenFeature-era FireWeave harness, and residue of the dissolved `@fireweaveai/deploy-sdk` (boot beacon + FireWeave-wired telemetry). Rewrites provider wiring to `initFireweave` from `@fireweaveai/server-sdk` / `@fireweaveai/web-sdk`, maps identity calls to target registration, re-aligns the repo contract `initialise` owns (`fireweave.md`, `.env.example`, `PROVIDERS.md`, `agent-instructions.md`, `surfaces[].metricsClient`), and reports the result to fw-server so the project page can pair it with the flag half. Use when the user asks to "migrate to FireWeave flags", "move off PostHog", "switch to the FireWeave SDK", "upgrade to control points", "remove the deploy-sdk / boot beacon", or invokes `/fireweave:migrate-harness`. `--check` reports what would change without writing.
 >
 > _User-triggered (Cline does not auto-activate workflows). Run with `/fw-migrate-harness.md`._
 
@@ -19,27 +19,38 @@ Doing only the flags half is the dangerous outcome: FireWeave ramps a flag in
 the managed project while the running app still reads the customer's old
 PostHog project. The FireWeave UI shows a rollout progressing and **no real
 user sees anything change**. Nothing server-side can detect that, which is why
-step 5 reports back.
+step 6 reports back.
 
 Run this AFTER the flags half, so the flags the rewritten code reads already
 exist in the managed project.
 
 ## HARD ORDER
 
-1. **Detect** — find every direct provider read.
+1. **Detect** — find every direct provider read, and every deploy-sdk residue.
 2. **Confirm** — show the plan; never rewrite without the user seeing it.
-3. **Rewrite** — provider wiring, then identity, then call sites, then anchors, then the tracker unification, then the upgrade notice.
-4. **Verify** — typecheck/build; a migration that does not compile is not done.
-5. **Report** — `POST /v1/projects/:projectId/harness-migration`.
+3. **Rewrite** — provider wiring, then identity, then call sites, then anchors, then the tracker unification, then the deploy-sdk strip, then the upgrade notice.
+4. **Re-align the repo contract** — the artifacts `initialise` owns and this skill has never touched: the telemetry inventory, the env contract, `PROVIDERS.md`, and `agent-instructions.md`.
+5. **Verify** — typecheck/build; a migration that does not compile is not done.
+6. **Report** — `POST /v1/projects/:projectId/harness-migration`.
 
-Do not skip 5. An unreported migration reads as "never happened", and the
+Do not skip 6. An unreported migration reads as "never happened", and the
 project page will keep warning that flags moved without the code.
+
+Do not skip 4 either, and for a less obvious reason. Steps 1–3 move the code;
+step 4 moves what every FUTURE change reads before touching that code. A repo
+that passes 5 and skips 4 compiles, ships, and then hands the next agent a
+telemetry contract describing a client the repo does not have — see §4.
 
 ## 1. Detect
 
-**There are TWO source shapes, and they need different rewrites.** Detect which
-one you have before planning anything — a repo can contain both, on different
-surfaces.
+**There are THREE source shapes, and they need different rewrites.** Detect which
+you have before planning anything — a repo can contain more than one, on
+different surfaces.
+
+A and B are alternatives: they describe where a surface's flag reads come from
+today. **C is orthogonal to both** — it describes a retired SDK the harness
+still links against, and a repo whose flag reads are ALREADY correct can carry
+it. Check for C even when A and B both come up empty.
 
 ### Source A — a direct PostHog SDK
 
@@ -77,11 +88,38 @@ forever, and a manifest rewrite is a server round-trip
 `"control-points"` only if you are already re-authoring that manifest for
 another reason.
 
+### Source C — deploy-sdk residue
+
+A repo scaffolded before `@fireweaveai/deploy-sdk` was dissolved. Its harness
+links a package that no longer has a successor, and the boot beacon it wired up
+no longer exists on either end.
+
+**This is the shape the other two miss.** A and B key on how flags are READ, so
+a repo whose reads were already migrated matches neither — and the residue then
+scans as clean while `fw-harness.*` still imports the retired SDK. That is not
+hypothetical: it is what a Source-B migration leaves behind today, because §3a
+below has only ever named `fw-providers.*` as the file to rewrite.
+
+- any import from `@fireweaveai/deploy-sdk` (including the `/attest` and
+  `/flags/web` subpaths), or the package in `package.json` / `pyproject.toml`
+- `initFwTelemetry`, `initFwAttestation`, `resolveBootBeaconFromEnv`, or a
+  `FW_SURFACES` const in a harness file
+- a python harness defining `_init_console_telemetry`
+- `FW_ATTEST_URL` / `PUBLIC_FW_ATTEST_URL` / `VITE_FW_ATTEST_URL`, or any
+  `*_OO_OTLP_*` name, in `.env.example` or an env template
+- `deploy-beacon.env.local` in `.fireweave/.gitignore`
+- a `.fireweave/PROVIDERS.md` with a **Boot beacon** column
+
+Grep the harness FILES, not just the dependency manifest: a dependency can be
+dropped while the imports stay, and imports can survive a dependency that was
+already removed. Both fail at different times.
+
 Group by **surface** (server, web, worker, mobile). Surfaces migrate
 independently and the report records which ones actually moved.
 
-If nothing is found, stop and say so. Do not scaffold a harness — that is
-`/fireweave:initialise`.
+If nothing is found — no A, no B, and no C — stop and say so. Do not scaffold a
+harness; that is `/fireweave:initialise`. **A repo with only C still has work**:
+skip to §3f and §4, and report the surfaces you touched there.
 
 ## 2. Confirm
 
@@ -92,7 +130,8 @@ migrating and why. Get explicit agreement before writing.
 
 ### 3a. Provider wiring
 
-**Both source shapes converge on the same target.** From Source A you are
+**Both FLAG source shapes — A and B — converge on the same target.** (Source C
+is not a flag path and is handled by §3f.) From Source A you are
 replacing a PostHog provider; from Source B you are replacing an OpenFeature
 provider **and deleting the OpenFeature dependency** — v1 bans an OpenFeature
 provider outright, so there is nothing left to wrap. Either way the result is
@@ -174,14 +213,29 @@ fw-server, which holds the managed credentials. Remove the now-unused
 `POSTHOG_*` env vars from the app's config and deployment.
 
 Reference implementation — read the **shipped templates**, not another customer's
-repo. They live in the initialise skill's own directory, beside its `SKILL.md`:
-`harness/ts-server/fw-providers.ts.tpl` (server) and
-`harness/web/fw-providers.ts.tpl` (browser). Resolve that path relative to the
-initialise skill's directory in this same bundle — `<dir of this SKILL.md>/../`
-plus whatever this host names it (`initialise`, `fw-initialise` on Cursor,
-`fw_initialise` on Codex). `apps/api/src/fireweave/fw-providers.ts` in the
-pulse-folio repo is one instance of that template, not the source of truth, and
-is not readable from here.
+repo. They live in the initialise skill's own directory, beside its `SKILL.md`.
+Resolve that path relative to the initialise skill's directory in this same
+bundle — `<dir of this SKILL.md>/../` plus whatever this host names it
+(`initialise`, `fw-initialise` on Cursor, `fw_initialise` on Codex).
+
+**Read BOTH files for every surface you touch**, not just the providers one:
+
+| surface     | providers                               | harness                               |
+| ----------- | --------------------------------------- | ------------------------------------- |
+| `ts-server` | `harness/ts-server/fw-providers.ts.tpl` | `harness/ts-server/fw-harness.ts.tpl` |
+| `web`       | `harness/web/fw-providers.ts.tpl`       | `harness/web/fw-harness.ts.tpl`       |
+| `python`    | `harness/python/fw_providers.py.tpl`    | `harness/python/fw_harness.py.tpl`    |
+
+The harness column is the one this skill used to omit, and the omission has a
+name: **`fw-harness.*` is where the deploy-sdk residue lives.** A migration that
+reads only the providers template rewrites the file that was already fine and
+leaves the file that still imports a dissolved package — §3f exists because that
+is what happened. The shipped harness templates import nothing but
+`./fw-providers`, and `harness/harness-templates.test.ts` pins that absence, so
+the target shape is checkable rather than remembered.
+
+`apps/api/src/fireweave/fw-providers.ts` in the pulse-folio repo is one instance
+of that template, not the source of truth, and is not readable from here.
 
 ### 3b. Identity — the part that is easy to get wrong
 
@@ -371,7 +425,74 @@ stops falling back to its conventional locations. If a surface has no tracker
 module, scaffold one from the initialise skill's `harness/<surface>/fw*tracker*`
 template first.
 
-### 3f. Tell the team to upgrade
+### 3f. Strip the dissolved deploy-sdk
+
+Applies to every surface matching **Source C**, whether or not that surface
+needed any other rewrite.
+
+`@fireweaveai/deploy-sdk` was dissolved. There is no successor package and no
+replacement call — the boot beacon it posted has no endpoint on the other end,
+and its telemetry initialiser wired an exporter FireWeave never owned. So this
+step deletes; it does not translate.
+
+**Delete from the harness file** (`fireweave/fw-harness.ts`, `fw_harness.py`, …):
+
+```diff
+-import { initFwTelemetry } from '@fireweaveai/deploy-sdk/flags/web';
+-import { initFwAttestation } from '@fireweaveai/deploy-sdk';
+-import { resolveBootBeaconFromEnv } from '@fireweaveai/deploy-sdk/attest';
+ import {
+   getFwClient,
+   isProd,
+   makeConnectedVendorProvider,
+   makeDevProvider,
+ } from './fw-providers';
+-import { FW_STAMPS } from './fw-tracker';
+-
+-const FW_SURFACES = [{ surfaceId: 'sfc_…', stamps: FW_STAMPS }];
+
+ export async function initFwHarness(): Promise<void> {
+   if (isProd()) {
+     await makeConnectedVendorProvider();
+   } else {
+     await makeDevProvider();
+   }
+-
+-  const ooUrl = (viteEnv?.VITE_OO_OTLP_ENDPOINT ?? …).replace(/\/$/, '');
+-  const ooAuth = viteEnv?.VITE_OO_OTLP_AUTH ?? …;
+-  initFwTelemetry(prod ? 'rollout' : 'dev', { serviceName: …, signals: { … } });
+-
+-  initFwAttestation({
+-    stamps: FW_STAMPS,
+-    surfaces: FW_SURFACES,
+-    ...resolveBootBeaconFromEnv({ env: process.env, prod, environment: … }),
+-  });
+ }
+```
+
+Python: delete `_init_console_telemetry` and its call from `init_fw_harness`.
+The current `harness/python/fw_harness.py.tpl` scaffolds no telemetry at all —
+compare against it rather than against what the file currently does.
+
+**Then remove the dependency** — `@fireweaveai/deploy-sdk` from every
+`package.json` in the repo, and the equivalent from `pyproject.toml`. Leaving it
+installed leaves a package nothing imports and a lockfile entry that reads as a
+supported dependency.
+
+**What this step must NOT touch.** `FW_STAMPS` and the `fw-tracker` module stay
+exactly as they are, and so does every anchor and manifest. The harness stops
+IMPORTING `FW_STAMPS` because `initFwAttestation` was its only consumer — that
+is a dropped import, not a dropped record. Deleting the stamps themselves would
+erase the change identity `reconcile` and the dev-checklist read out of the
+committed tree; `/fw-cleanup` is the only thing that retires a stamp.
+
+**Verify by grep, not by eye.** After the edit, `@fireweaveai/deploy-sdk` must
+match **zero** times across the repo, including lockfiles once dependencies are
+reinstalled. Then re-run `use_mcp_tool(server_name="rollout-server", tool_name="detect_rollout_ready")` and confirm
+the anchor count is unchanged, exactly as §3d requires — an edit that reached
+into a tracker or an anchor shows up there and nowhere else.
+
+### 3g. Tell the team to upgrade
 
 This migration moves the repo onto shapes older tooling does not read: the
 unified tracker location, per-surface tracker paths, and the
@@ -395,13 +516,181 @@ summary and put it in the PR description**:
 
 Say it plainly — an upgrade notice buried in a commit body is one nobody reads.
 
-## 4. Verify
+## 4. Re-align the repo contract
+
+Steps 1–3 moved the code. This step moves what every FUTURE change reads
+**before** touching that code: the telemetry inventory, the environment
+contract, `PROVIDERS.md`, and `agent-instructions.md`.
+
+`initialise` writes those four once, at scaffold time, from what the repo looked
+like then. This skill is the only other thing that changes what a surface's flag
+and telemetry story IS. Skip this step and the repo keeps an initialise-era
+contract describing code you just deleted — and the next agent believes it,
+because believing it is exactly what those files are for.
+
+**`--reinit` is not a substitute, and cannot be made into one.**
+`record_rollout_env_contract` appends names to `.env.example` and has no prune
+path, and `--reinit` re-declares surfaces without touching `.env.example`,
+`.fireweave/.gitignore`, `PROVIDERS.md`, or any harness file. Nothing else in
+the system will ever remove a stale name. That is why this step lives here.
+
+### 4a. Take the telemetry inventory — per surface
+
+**Derived by READING the repo.** Not from `PROVIDERS.md` — that is the file most
+likely to be lying, since it was written before the rewrite you just did. Not by
+asking the user, and not by assuming a convention.
+
+Two questions per surface, one read:
+
+1. **Is a metrics client initialised at all?** Look for the provider/client
+   CONSTRUCTION — an OTel `MeterProvider`, a vendor SDK client, a StatsD
+   connection — not call sites. A dependency in the manifest is not an answer:
+   check that something builds a meter from it.
+2. **What does this surface already emit?** Inventory the metric names in use,
+   where each is emitted, and what it measures.
+
+The second question has no other source. Every `observability.query.*`
+capability takes a metric NAME; nothing lists what exists, so the repo is the
+only place to learn it, and this is the only pass that reads the repo for this
+purpose.
+
+**Never PARK on an empty answer.** `initialise` PARKs a surface with no metrics
+client, and it is right to: it is deciding whether the repo is rollout-capable
+at all, and a hole there is a decision the user has not made yet. This skill is
+repairing a repo that already ships. Record `"none"`, say which surface in the
+session summary, and continue — a migration that stops halfway leaves the harness
+rewritten and the contract stale, which is strictly the worse of the two states.
+
+**`"none"` and absent are different findings.** `"none"` says someone looked and
+this surface emits nothing; absent says nobody looked. Never write one meaning
+the other. If the pre-migration `PROVIDERS.md` claimed a client the repo does not
+have, say so explicitly in the session summary — a fabricated telemetry row is a
+finding worth naming, not a typo to quietly overwrite.
+
+### 4b. Write the env contract
+
+```
+use_mcp_tool(server_name="rollout-server", tool_name="record_rollout_env_contract") { cwd, apiSurface, webSurface, webappUrl? }
+```
+
+It writes the committed `fireweave.md` at the repo root, appends the required
+NAMES to `.env.example`, and **mints nothing** — no key endpoint is called and no
+credential is returned. Pass `apiSurface: true` when a `ts-server`, `python` or
+`java` surface exists, `webSurface: true` when a `web` surface does, and
+`webappUrl` when you know it so the operator gets a clickable link.
+
+`cwd` is the same absolute workspace root the rest of this skill uses.
+
+**On a missing tool → soft-continue**, naming the gap. An older bundle without
+it leaves a worse-documented repo, not a broken one; do not PARK and do not
+hand-write `fireweave.md` from memory.
+
+### 4c. Purge the beacon and FW-telemetry env contract
+
+**Runs AFTER 4b, deliberately.** The writer only appends, so purging first lets
+it re-add nothing; purging last removes exactly the names it will never own.
+
+**`.env.example`** — delete:
+
+- `FW_ATTEST_URL`, `PUBLIC_FW_ATTEST_URL`, `VITE_FW_ATTEST_URL`
+- every `*_OO_OTLP_*` name
+- the `# Boot beacon (deploy gate)` header and any comment describing a beacon
+
+Keep an OTLP name **only** when 4a found a real exporter in this repo reading it.
+An env name that reaches nothing is not documentation — it is an instruction to
+set a variable that will be ignored, and the next operator has no way to tell.
+
+**`.fireweave/.gitignore`** — remove `deploy-beacon.env.local`. The file it
+ignores is never written any more.
+
+**`.fireweave/PROVIDERS.md`** — rewrite to the tier-keyed shape and delete the
+**Boot beacon** column outright:
+
+```markdown
+# FireWeave providers (this repo)
+
+| Tier                               | Flags path                                                                               | Telemetry                                               |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **dev** (`<env signal>` = `dev`)   | SDK **local** mode — in-memory `controlPoints` map in each surface's `makeDevProvider()` | <the app's own client, from 4a — or "none initialised"> |
+| **prod** (`<env signal>` = `prod`) | SDK **remote** mode → fw-server `/v1/flags/evaluate` via `FW_*` / `PUBLIC_FW_*`          | <same, and where it exports to>                         |
+
+- Flag control (prod): managed PostHog project `<id>` via FireWeave.
+- Env signal: `<the project's own variable>`.
+- Credentials: see `fireweave.md`. FireWeave mints nothing.
+```
+
+**Telemetry is the app's own, and goes direct to the bound vendor.** FireWeave
+does not carry it, proxy it, or provision its credentials. Describe what 4a
+actually found; when 4a found nothing, write that, and do not name an endpoint
+variable to compensate.
+
+**Hard assert before moving on:** no file under the workspace contains a
+`project-api-key_` / `fw_public_` / `fw_ingest_pub_` prefix followed by key
+material. This skill mints nothing, so a match means a credential was pasted in —
+stop, tell the user to move it to the deploy environment, and rotate it.
+
+### 4d. Regenerate `.fireweave/agent-instructions.md`
+
+Rewrite it to the current template. **Read that template from the initialise
+skill's `SKILL.md` — the section titled `Agent instructions template`** — at the
+path §3a already resolves (`<dir of this SKILL.md>/../` plus this host's name for
+it). Do not reconstruct it from the file already in the repo, and do not copy the
+template's prose into this skill: two skills carrying one template is how the two
+drift, and the version in the repo is by definition the stale one.
+
+Every section it lists is required. The ones a migrated repo is most often
+missing entirely:
+
+- **How to emit a metric — one section PER SURFACE**, filled from 4a: the client,
+  the exact import line as it appears in this repo, the counter and histogram
+  call shapes, where the instrument comes from, one REAL example with its file
+  path cited, any local wrapper the codebase prefers, and the label convention.
+  Plus the inventory half — what this surface already emits — which is what makes
+  `provenance: "existing"` reachable at change time.
+- the header naming project, `projectId` and server URL
+- the **Surfaces** table (`surfaceId`, credential env, entrypoint)
+- **Does this task qualify?** — the change / inquiry / brainstorm / infra-only rubric
+- the signals step in the dev-loop HARD ORDER (decide reuse / add / park at each
+  control point, then amend the manifest)
+- `context.targetingKey` and the telemetry `provenance` rule in the manifest contract
+
+Take repo-specific paths from what steps 3 and 4 actually produced, not from the
+old file.
+
+### 4e. Record the metrics client
+
+Write `metricsClient` onto each surface in `.fireweave/project.json`
+`surfaces[]`, and send the same value with
+`use_mcp_tool(server_name="rollout-server", tool_name="update_repo_state")`:
+
+```jsonc
+{
+  "surfaces": [
+    {
+      "surfaceId": "sfc_…",
+      "surface": "ts-server",
+      "metricsClient": "otel-meter",
+    },
+    { "surfaceId": "sfc_…", "surface": "web", "metricsClient": "none" },
+  ],
+}
+```
+
+Use the name 4a resolved. **Absent is not `"none"`** — leaving the field off says
+nobody looked, and the next change re-derives the answer badly from whichever
+files it happened to touch.
+
+Do not mint or edit a `surfaceId` here. This step adds one field to surfaces that
+already exist; a surface with no id is a `fw repo declare-surfaces` problem, not
+something to paper over.
+
+## 5. Verify
 
 Run the project's typecheck/build and its tests. Report failures; do not
-proceed to step 5 with a broken build — a migration that does not compile is
+proceed to step 6 with a broken build — a migration that does not compile is
 not migrated, and reporting it as such makes the project page lie.
 
-## 5. Report
+## 6. Report
 
 Send the report **over the CLI profile**, not the project API key.
 
@@ -469,3 +758,25 @@ show when the two halves disagree.
 ## `--check`
 
 Do steps 1–2 and stop. Write nothing, report nothing.
+
+## Tool manifest
+
+```json
+{
+  "SKILL_EXPECTED_TOOL_MANIFEST": [
+    { "name": "select_project", "server": "rollout-server" },
+    { "name": "detect_rollout_ready", "server": "rollout-server" },
+    { "name": "reconcile", "server": "rollout-server" },
+    { "name": "record_rollout_env_contract", "server": "rollout-server" },
+    { "name": "update_repo_state", "server": "rollout-server" },
+    { "name": "assert_dev_checklist", "server": "rollout-server" },
+    { "name": "refresh_agent_skills", "server": "rollout-server" }
+  ]
+}
+```
+
+The skill already called the first three in prose while declaring none, so a
+host had no way to tell in advance whether its bundle could satisfy this skill.
+A tool that is absent degrades the step that uses it — §3d's anchor re-scan and
+§4b's env contract both name their own soft-continue — but the manifest is what
+lets a host say so BEFORE the rewrite rather than midway through it.

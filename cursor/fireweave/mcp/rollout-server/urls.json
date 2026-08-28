@@ -1,25 +1,25 @@
 {
-  "version": "2.4.0",
+  "version": "2.5.0",
   "platforms": {
     "linux-x64": {
-      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.4.0/fireweave/rollout-server/fireweave-rollout-server-linux-x64.mcpb",
-      "sha256": "4d34b4e2b31398ca5244a348db2e96d2a6dd46234461c20ef852216afc261838"
+      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.5.0/fireweave/rollout-server/fireweave-rollout-server-linux-x64.mcpb",
+      "sha256": "ca4cd7f29d0b54c2bc981a4dc87eaa8f869ef4c9f67edff64782aa63885e3c52"
     },
     "linux-arm64": {
-      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.4.0/fireweave/rollout-server/fireweave-rollout-server-linux-arm64.mcpb",
-      "sha256": "c539e571370f1c04d3630c3c2928713e965c513d627253029a88005498062eeb"
+      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.5.0/fireweave/rollout-server/fireweave-rollout-server-linux-arm64.mcpb",
+      "sha256": "4d4c7fed03054539084662ab0d7aad0a383429a6bddee504e072cacf76e2e700"
     },
     "darwin-x64": {
-      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.4.0/fireweave/rollout-server/fireweave-rollout-server-darwin-x64.mcpb",
-      "sha256": "1d490ab56eae2991bd189f18bcd2029383447843caea8f509e90e8ecda22b93e"
+      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.5.0/fireweave/rollout-server/fireweave-rollout-server-darwin-x64.mcpb",
+      "sha256": "015aa5cd8b074cb65af5884fe47cd54f4ca68e822baee0e996d4bbbf10db3ea1"
     },
     "darwin-arm64": {
-      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.4.0/fireweave/rollout-server/fireweave-rollout-server-darwin-arm64.mcpb",
-      "sha256": "848d7e9287a961ebb7974316ed469c74e31178ab83f1481bf5384c7bebd3856c"
+      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.5.0/fireweave/rollout-server/fireweave-rollout-server-darwin-arm64.mcpb",
+      "sha256": "43cd8afd3bfdf340547743906a5419873dd500854cd59fa22a87ba93522bb845"
     },
     "windows-x64": {
-      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.4.0/fireweave/rollout-server/fireweave-rollout-server-windows-x64.mcpb",
-      "sha256": "6d6e7fe4eb2b767f4da37641453f5aa0e3717e63dbbd25a8d1e4369bd1bea0e2"
+      "url": "https://assets-fireweave-ai.s3.us-east-2.amazonaws.com/plugins/staging/v2.5.0/fireweave/rollout-server/fireweave-rollout-server-windows-x64.mcpb",
+      "sha256": "f1d16e5b0d63f08e0d08a3f970b152a0084eeb378c91fa64bc5566670ea9ab1c"
     }
   }
 }

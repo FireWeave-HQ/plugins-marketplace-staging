@@ -108,6 +108,9 @@ of the failing output, and a `todo` a person can act on.
 
 ## Per app (every `ready` or `agent` entry in pre.json)
 
+<!-- fw-per-app -->
+<!-- The same text in ci-initialise and initialise. Edit it in ci-initialise, then run `bun run gen:setup-templates` in packages/rollout-tools. -->
+
 **1. Find the entrypoint** when `entrypoint` is null: the module the app's
 process (server) or page (web) loads first. Read its `package.json` scripts and
 `index.html`; do not explore further than that. Record it in your notes.
@@ -176,8 +179,10 @@ start file as FireWeave wrote it.
 you cannot wire safely), undo YOUR edits to that app and mark it `not-set-up`
 with a one-line `reason` and a `todo` a person can act on. Then continue.
 
-**After each app**, rewrite `/work/.fw/setup/notes.json` with every app done so
-far, so a retry resumes after it.
+**After each app**, rewrite your notes file, `notes.json`, with every app done
+so far, so a retry resumes after it.
+
+<!-- /fw-per-app -->
 
 ## Output contract
 

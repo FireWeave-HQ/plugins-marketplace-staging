@@ -778,10 +778,10 @@ Legacy `FW_PROJECT_API_KEY`, `FW_API_URL` and `FW_ATTEST_URL` still work with a 
 
 This app uses `fireweave::start`. All FireWeave setup is:
 
-| File                                                      | Purpose                                                                                                                                                       |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<control-points-path>` (src/fireweave_control_points.rs) | Every control point the app reads, with the value served in **local mode**.                                                                                   |
-| `<mains>`                                                 | `fireweave::start::start(StartOptions { control_points: fireweave_control_points::control_points(), ..Default::default() })?` first, plus optional overrides. |
+| File                                                      | Purpose                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<control-points-path>` (src/fireweave_control_points.rs) | Every control point the app reads, with the value served in **local mode**.                                                                                                                                                                               |
+| `<mains>`                                                 | `fireweave::start::start(StartOptions { control_points: fireweave_control_points::control_points(), ..Default::default() }).expect("FireWeave start")` first (`?` when `main` returns a `Result` that accepts `FireweaveError`), plus optional overrides. |
 
 Never call `init_fireweave`, never construct adapters, never call `start` anywhere but the mains,
 and never name a local module `fireweave` (it shadows the crate).
